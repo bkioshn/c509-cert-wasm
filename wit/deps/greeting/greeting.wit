@@ -1,0 +1,5 @@
+package app:greeting;
+
+interface greeting {
+    hello: func(name: string);
+}

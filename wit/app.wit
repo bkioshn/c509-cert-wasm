@@ -1,0 +1,5 @@
+package app:main;
+
+world guest {
+    export app:greeting/greeting;
+}
