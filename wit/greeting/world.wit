@@ -1,5 +1,0 @@
-package app:greeting;
-
-world all {
-    export greet
-}
