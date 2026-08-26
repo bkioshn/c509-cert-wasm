@@ -1,0 +1,18 @@
+{
+  "name": "host-js",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "transpile:greet": "jco transpile ../../guest/target/wasm32-wasip2/release/greet.wasm -o generated/greet",
+    "transpile:c509": "jco transpile ../../guest/target/wasm32-wasip2/release/c509.wasm -o generated/c509",
+    "transpile": "npm run transpile:greet && npm run transpile:c509",
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@bytecodealliance/preview2-shim": "0.14.2"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "0.14.2"
+  }
+}
