@@ -1,0 +1,8 @@
+package app:c509;
+
+interface c509 {
+    decode: func(bytes: list<u8>);
+    decode-sequence: func(bytes: list<u8>);
+    encode: func(bytes: list<u8>);
+    encode-sequence: func(bytes: list<u8>);
+}

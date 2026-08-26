@@ -1,5 +1,9 @@
 package app:main;
 
-world guest {
+world greeting-guest {
     export app:greeting/greeting;
+}
+
+world c509-guest {
+    export app:c509/c509;
 }
