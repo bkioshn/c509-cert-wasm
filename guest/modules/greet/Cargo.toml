@@ -6,6 +6,13 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = ["component"]
+# wasm32-wasip2 component export (wit-bindgen), used by host/rust and host/js.
+component = ["dep:wit-bindgen"]
+# plain wasm32-wasip1 core-module export (hand-rolled C ABI), used by host/go.
+wasip1 = []
+
 [dependencies]
 shared = { path = "../../shared" }
-wit-bindgen = "0.57"
+wit-bindgen = { version = "0.57", optional = true }
