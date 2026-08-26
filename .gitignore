@@ -1,1 +1,13 @@
 **/target
+**/target-wasip1
+
+# host/js
+node_modules
+generated
+
+# host/python
+.venv
+__pycache__
+
+# all hosts: runtime log written by the guest's log::append("greetings.log", ...)
+*.log
