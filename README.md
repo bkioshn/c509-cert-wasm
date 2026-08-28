@@ -7,17 +7,19 @@ called from four different host languages (Rust, JavaScript, Python, Go).
 
 ```
 wit/                      WIT interfaces/worlds shared by guest and host
-guest/
+<!-- guest/ -->
   shared/                 common guest-side utilities (log, timer)
   modules/
-    greet/                exports app:greeting/greeting (hello)
+    greet/                exports app:greeting/greeting (hello) - an example
     c509/                 exports app:c509/c509 (decode/decode-sequence/encode/encode-sequence),
                           wraps the c509-cert crate
+  justfile                
 host/
   rust/                   wasmtime host — calls the wasm32-wasip2 components
   js/                     Node host (jco) — calls the wasm32-wasip2 components
   python/                 wasmtime-py host — calls the wasm32-wasip2 components
   go/                     wazero host — calls a wasm32-wasip1 fallback build (see below)
+  justfile                
 ```
 
 ## Prerequisites
@@ -29,10 +31,9 @@ host/
   host uses
 - Go (for `host/go`) — `go.mod` requires Go ≥1.25; Go's toolchain manager will
   auto-download a matching version on first build if your system `go` is older
-- A local checkout of [`c509-cert`](https://github.com/bkioshn/c509-cert)
-  alongside this repo (`../c509-cert` relative to this repo's parent
-  directory) — `host/rust` and `guest/modules/c509` depend on it via a local
-  `path` dependency
+- [`just`](https://github.com/casey/just) (optional) — runs the `justfile`s in
+  `guest/` and `host/`; every recipe is just a thin wrapper around the plain
+  `cargo`/`npm`/`go` commands documented below, so it's not required
 
 ## Why two guest builds
 
@@ -51,7 +52,13 @@ Cargo features (`default = ["component"]` vs `wasip1`):
   exports on a wasip2 *component* — `wasmtime-go` has open TODOs for both
   WASI Preview 2 wiring and component function calling, and `wazero` has no
   component-model support at all. `host/go` uses `wazero` (pure Go, no cgo)
-  against this fallback build instead.
+  against this fallback build instead. Since there's no wit-bindgen-generated
+  return marshaling on this path either, `decode`/`decode_sequence`/
+  `encode`/`encode_sequence` also hand-roll their *return* values: each packs
+  a `(ptr, len)` pair into a single `u64`, pointing at a guest-allocated
+  buffer whose first byte is an ok/err tag — see
+  `wasip1_export::write_tagged` in `guest/modules/c509/src/lib.rs`, and
+  `callTagged` in `host/go/main.go` for the host side of that convention.
 
 This means `host/go` is calling a **different compiled artifact** than
 `host/rust`/`host/js`/`host/python` — same source, same logic, but not "the
@@ -71,7 +78,7 @@ own directory if you drop the feature flags.
 From `guest/`:
 
 ```bash
-# wasm32-wasip2 components — used by host/rust and host/js
+# wasm32-wasip2 components — used by host/rust, host/js, and host/python
 cargo build --target wasm32-wasip2 --release
 
 # wasm32-wasip1 fallback build — used by host/go
@@ -79,7 +86,8 @@ cargo build --target wasm32-wasip1 --target-dir target-wasip1 --release \
   --no-default-features --features wasip1
 ```
 
-Re-run whichever of these changed whenever you edit `guest/modules/*` or `wit/*`.
+Or, with `just`: `just build`, `just wasip1`, or `just` (both). Re-run
+whichever of these changed whenever you edit `guest/modules/*` or `wit/*`.
 
 ## Run
 
@@ -111,18 +119,22 @@ cd host/go
 go run .
 ```
 
+Or, with `just` (from `host/`): `just rust`, `just js`, `just python`,
+`just go`, or `just run-all` for all four in turn. (`js` and `python` each
+have a one-time `just js-install`/`just python-venv` setup recipe too,
+matching the commands above.)
+
 All four print the same three `Hello, <name>!` lines (appended to their own
-local `greetings.log`) and decode the same RFC 7925 example C509 certificate
-via `c509`.
+local `greetings.log`), decode the same RFC 7925 example C509 certificate via
+`c509` (both the array-wrapped form via `decode` and the bare-sequence form
+via `decode-sequence`), and round-trip a sample certificate through
+`encode`/`encode-sequence` back onto those same RFC test-vector bytes.
 
 ## Known gaps
 
-- `c509`'s `encode`/`encode-sequence` are unimplemented stubs on the guest
-  side — undecided what the input bytes should represent (JSON text to build
-  a certificate from? something else?), since a full `C509Certificate` can't
-  be represented directly in WIT.
-- `host/rust`'s `runtime_extensions/c509_cert` module (thin Rust wrappers
-  around the `c509-cert` crate, plus a hand-rolled JSON→CBOR schema in
-  `runtime_extensions/c509_cert/json.rs`) isn't wired into any WIT interface
-  yet — it's host-side scaffolding for a future host-provided interface, not
-  currently called from anywhere.
+- The wasip1 fallback path's `decode`/`decode_sequence`/`encode`/`encode_sequence`
+  return values use a hand-rolled tagged `(ptr, len)` convention (see "Why two
+  guest builds" above) instead of any standard ABI — it's only implemented in
+  `guest/modules/c509/src/lib.rs`'s `wasip1_export` module and consumed by
+  `host/go`; a new wasip1-only host would need to reimplement that unpacking
+  logic by hand.
