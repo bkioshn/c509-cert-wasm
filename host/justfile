@@ -1,10 +1,10 @@
 # Run the host programs. Run from host/ (or `just --justfile host/justfile`).
 # Each recipe mirrors the commands in the repo README's "Run" section.
 #
-# All five expect the guest wasm to already be built — see guest/justfile.
+# All four expect the guest wasm to already be built — see guest/justfile.
 
 # run every host in turn
-run-all: rust js python go java
+run-all: rust js python go
 
 # --- Rust host — wasmtime, calls the wasm32-wasip2 components ---
 rust:
@@ -31,8 +31,3 @@ python:
 # --- Go host — wazero, calls the wasm32-wasip1 fallback build ---
 go:
     cd go && go run .
-
-# --- Java host — Chicory, calls the wasm32-wasip1 fallback build ---
-# requires JAVA_HOME pointed at a JDK 17+
-java:
-    cd java && mvn compile exec:java
