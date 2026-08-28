@@ -5,12 +5,16 @@
 // for that). There is no wit-bindgen equivalent for wasip1, so every
 // argument is marshaled by hand: call `alloc` to get a buffer inside the
 // guest's own linear memory, write the bytes into it, then call the export
-// with (ptr, len).
+// with (ptr, len). Return values are marshaled by hand too: decode/encode
+// exports return a single u64 packing (ptr, len) of a guest-allocated
+// buffer whose first byte is a tag (1 = Ok, 0 = Err) and the rest is the
+// payload — see guest/modules/c509/src/lib.rs's wasip1_export::write_tagged.
 package main
 
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -20,9 +24,9 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-// Appendix A.1.1 example from the draft (CBOR re-encoding of a DER-encoded
-// RFC 7925 profiled X.509 certificate), as a CBOR Sequence — same bytes the
-// Rust and JS hosts decode.
+// Appendix A.1.1: "CBOR re-encoded X.509 v3 Certificate" (c509CertificateType
+// = 3), 140-byte unwrapped ~C509Certificate CBOR Sequence — same bytes the
+// Rust, JS, and Python hosts decode with decode-sequence.
 const a1_1DerReencoded = `
 	03
 	43 01 F5 0D
@@ -38,6 +42,48 @@ const a1_1DerReencoded = `
 	58 40 D4 32 0B 1D 68 49 E3 09 21 9D 30 03 7E 13 81 66 F2 50 82 47 DD
 	DA E7 6C CE EA 55 05 3C 10 8E 90 D5 51 F6 D6 01 06 F1 AB B4 84 CF BE
 	62 56 C1 78 E4 AC 33 14 EA 19 19 1E 8B 60 7D A5 AE 3B DA 16
+`
+
+// Appendix A.1.2: "Natively Signed C509 Certificate" (c509CertificateType =
+// 2) corresponding to the same X.509 certificate, array-wrapped (leading
+// `8B` = CBOR array(11) header) so plain `decode` (not decode-sequence)
+// applies.
+const a1_2Native = `
+	8B
+	02
+	43 01 F5 0D
+	00
+	6B 52 46 43 20 74 65 73 74 20 43 41
+	1A 63 B0 CD 00
+	1A 69 55 B9 00
+	D8 30 46 01 23 45 67 89 AB
+	01
+	58 21 02 B1 21 6A B9 6E 5B 3B 33 40 F5 BD F0 2E 69 3F 16 21 3A 04 52
+	5E D4 44 50 B1 01 9C 2D FD 38 38 AB
+	01
+	58 40 EB 0D 47 27 31 F6 89 BC 00 F5 88 0B 12 C6 8B 3F 9F D3 8B 23 FA
+	DF CA 20 95 0F 3F 24 1B 60 A2 02 57 9C AC 28 CD 3B 74 94 D5 FA 5D 8B
+	BA B4 60 03 57 E5 50 AB 9F A9 A6 5D 9B A2 B3 B8 2E 66 8C C6
+`
+
+// C509 certificate JSON string — round-trips onto a1_1DerReencoded via
+// encode-sequence (and onto that plus an array header via encode).
+const c509CertJSON = `
+	{
+		"tbs": {
+			"c509_certificate_type": 3,
+			"certificate_serial_number": "01f50d",
+			"issuer_signature_algorithm": { "Int": 0 },
+			"issuer": [ { "Registered": { "id": 1, "printable_string": false, "value": { "Text": "RFC test CA" } } } ],
+			"validity_not_before": "2023-01-01T00:00:00Z",
+			"validity_not_after": "2026-01-01T00:00:00Z",
+			"subject": [ { "Registered": { "id": 1, "printable_string": false, "value": { "Mac": "01:23:45:67:89:AB" } } } ],
+			"subject_public_key_algorithm": { "Int": 1 },
+			"subject_public_key": "feb1216ab96e5b3b3340f5bdf02e693f16213a04525ed44450b1019c2dfd3838ab",
+			"extensions": [ { "id": { "Int": 2 }, "critical": false, "value": { "KeyUsage": 1 } } ]
+		},
+		"issuer_signature_value": "d4320b1d6849e309219d30037e138166f2508247dddae76cceea55053c108e90d551f6d60106f1abb484cfbe6256c178e4ac3314ea19191e8b607da5ae3bda16"
+	}
 `
 
 // loadModule reads and instantiates a wasm32-wasip1 reactor module, wiring
@@ -84,6 +130,24 @@ func writeBytes(ctx context.Context, mod api.Module, data []byte) (uint32, uint3
 	return ptr, uint32(len(data))
 }
 
+// callTagged invokes a decode/encode export (ptr, len) -> u64, unpacks the
+// packed (ptr, len) result, and splits off the leading ok/err tag byte —
+// see the wasip1_export::write_tagged doc comment in lib.rs for the format.
+func callTagged(ctx context.Context, mod api.Module, fn string, argPtr, argSize uint32) (ok bool, payload []byte) {
+	results, err := mod.ExportedFunction(fn).Call(ctx, uint64(argPtr), uint64(argSize))
+	if err != nil {
+		log.Fatal(err)
+	}
+	packed := results[0]
+	ptr := uint32(packed >> 32)
+	size := uint32(packed)
+	buf, readOk := mod.Memory().Read(ptr, size)
+	if !readOk {
+		log.Fatalf("failed to read %d bytes of %s result from guest memory", size, fn)
+	}
+	return buf[0] == 1, buf[1:]
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -114,18 +178,44 @@ func main() {
 	// cargo build --target wasm32-wasip1 --target-dir target-wasip1 --release --no-default-features --features wasip1
 	// ```
 	c509 := loadModule(ctx, runtime, "c509", "../../guest/target-wasip1/wasm32-wasip1/release/c509.wasm")
-	cleaned := strings.Map(func(r rune) rune {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			return -1
+
+	clean := func(hexStr string) []byte {
+		cleaned := strings.Map(func(r rune) rune {
+			if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+				return -1
+			}
+			return r
+		}, hexStr)
+		data, err := hex.DecodeString(cleaned)
+		if err != nil {
+			log.Fatal(err)
 		}
-		return r
-	}, a1_1DerReencoded)
-	bytes, err := hex.DecodeString(cleaned)
-	if err != nil {
-		log.Fatal(err)
+		return data
 	}
-	ptr, size := writeBytes(ctx, c509, bytes)
-	if _, err := c509.ExportedFunction("decode_sequence").Call(ctx, uint64(ptr), uint64(size)); err != nil {
-		log.Fatal(err)
+
+	bytesA1_1 := clean(a1_1DerReencoded)
+	ptr, size := writeBytes(ctx, c509, bytesA1_1)
+	ok, payload := callTagged(ctx, c509, "decode_sequence", ptr, size)
+	fmt.Printf("decoded sequence cert (A1.1): ok=%v %s\n", ok, payload)
+
+	bytesA1_2 := clean(a1_2Native)
+	ptr, size = writeBytes(ctx, c509, bytesA1_2)
+	ok, payload = callTagged(ctx, c509, "decode", ptr, size)
+	fmt.Printf("decoded cert (A1.2): ok=%v %s\n", ok, payload)
+
+	ptr, size = writeBytes(ctx, c509, []byte(c509CertJSON))
+	ok, payload = callTagged(ctx, c509, "encode", ptr, size)
+	if ok {
+		fmt.Printf("encoded cert: ok=%v %v\n", ok, payload)
+	} else {
+		fmt.Printf("encoded cert: ok=%v %s\n", ok, payload)
+	}
+
+	ptr, size = writeBytes(ctx, c509, []byte(c509CertJSON))
+	ok, payload = callTagged(ctx, c509, "encode_sequence", ptr, size)
+	if ok {
+		fmt.Printf("encoded sequence cert: ok=%v %v\n", ok, payload)
+	} else {
+		fmt.Printf("encoded sequence cert: ok=%v %s\n", ok, payload)
 	}
 }
