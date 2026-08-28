@@ -1,23 +1,33 @@
 use c509_cert::C509Certificate;
-use shared::utils::{log};
 
-pub fn decode(bytes: Vec<u8>) {
+/// Decode a C509 certificate from bytes and return a JSON string
+/// Expect a certificate wrap in array of 11 elements.
+pub fn decode(bytes: Vec<u8>) -> Result<String, String> {
     let cert = C509Certificate::decode(&bytes);
-    log::log(&format!("decoded cert: {:?}", cert));
+    cert.map_err(|e| e.to_string())
+        .and_then(|cert| serde_json::to_string(&cert).map_err(|e| e.to_string()))
+        .map_err(|e| e.to_string())
 }
 
-pub fn decode_sequence(bytes: Vec<u8>) {
+/// Decode a C509 certificate sequence from bytes and return a JSON string
+/// Expect a certificate sequnence without a array wrapper with 11 elements.
+pub fn decode_sequence(bytes: Vec<u8>) -> Result<String, String> {
     let cert = C509Certificate::decode_sequence(&bytes);
-    log::log(&format!("decoded sequence cert: {:?}", cert));
+    cert.map_err(|e| e.to_string())
+        .and_then(|cert| serde_json::to_string(&cert).map_err(|e| e.to_string()))
+        .map_err(|e| e.to_string())
 }
 
-// TODO: decide what these input bytes represent (JSON text? something
-// else?) — WIT declares `list<u8>` here since a full C509Certificate can't
-// be represented in WIT, so this can't just take a C509Certificate directly.
-pub fn encode(_bytes: Vec<u8>) {
-    log::log("encode: not yet implemented");
+/// Encode a C509 certificate from a JSON string and return bytes
+/// Return a certificate wrap in array with 11 elements.
+pub fn encode(json_string: String) -> Result<Vec<u8>, String> {
+    let cert: C509Certificate = serde_json::from_str(&json_string).map_err(|e| e.to_string())?;
+    Ok(cert.encode())
 }
 
-pub fn encode_sequence(_bytes: Vec<u8>) {
-    log::log("encode_sequence: not yet implemented");
+/// Encode a C509 certificate sequence from a JSON string and return bytes
+/// Return a certificate sequnence without a array wrapper with 11 elements.
+pub fn encode_sequence(json_string: String) -> Result<Vec<u8>, String> {
+    let cert: C509Certificate = serde_json::from_str(&json_string).map_err(|e| e.to_string())?;
+    Ok(cert.encode_sequence())
 }

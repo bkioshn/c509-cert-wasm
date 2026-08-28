@@ -11,10 +11,18 @@ mod component_export {
     struct Component;
 
     impl Guest for Component {
-        fn decode(bytes: Vec<u8>) { handlers::decode(bytes); }
-        fn decode_sequence(bytes: Vec<u8>) { handlers::decode_sequence(bytes); }
-        fn encode(bytes: Vec<u8>) { handlers::encode(bytes); }
-        fn encode_sequence(bytes: Vec<u8>) { handlers::encode_sequence(bytes); }
+        fn decode(bytes: Vec<u8>) -> Result<String, String> {
+            handlers::decode(bytes)
+        }
+        fn decode_sequence(bytes: Vec<u8>) -> Result<String, String> {
+            handlers::decode_sequence(bytes)
+        }
+        fn encode(json_string: String) -> Result<Vec<u8>, String> {
+            handlers::encode(json_string)
+        }
+        fn encode_sequence(json_string: String) -> Result<Vec<u8>, String> {
+            handlers::encode_sequence(json_string)
+        }
     }
 
     bindings::export!(Component with_types_in bindings);
