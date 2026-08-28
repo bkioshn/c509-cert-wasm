@@ -1,0 +1,23 @@
+# Build the guest wasm modules. Run from guest/ (or `just --justfile guest/justfile`).
+#
+# Two separate builds exist because no mature Go or Java library can
+# instantiate/call exports on a wasip2 *component* — see the repo README's
+# "Why two guest builds" section for the full explanation.
+
+# build everything (wasip2 + wasip1 fallback)
+build: wasip2 wasip1
+
+# wasm32-wasip2 components — used by host/rust and host/js and host/python
+wasip2:
+    cargo build --target wasm32-wasip2 --release
+
+# wasm32-wasip1 fallback build — used by host/go and host/java
+wasip1:
+    cargo build --target wasm32-wasip1 --target-dir target-wasip1 --release \
+        --no-default-features --features wasip1
+
+# clean everything
+clean:
+    cargo clean
+    cargo clean --target-dir target-wasip1
+    cargo clean --target target
