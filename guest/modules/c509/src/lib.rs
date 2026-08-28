@@ -53,23 +53,59 @@ mod wasip1_export {
         unsafe { core::slice::from_raw_parts(ptr, len as usize).to_vec() }
     }
 
+    // Marshal a Result out to the host as a single (ptr, len) pair packed
+    // into a u64 (ptr in the high 32 bits, len in the low 32 bits) — the
+    // simplest return convention that doesn't need the wasm multi-value
+    // proposal. The buffer's first byte is a tag (1 = Ok, 0 = Err); the rest
+    // is the payload (UTF-8 text for the Ok(String)/Err(String) case, raw
+    // bytes for the Ok(Vec<u8>) case).
+    fn write_tagged(ok: bool, mut payload: Vec<u8>) -> u64 {
+        let mut buf = Vec::with_capacity(1 + payload.len());
+        buf.push(ok as u8);
+        buf.append(&mut payload);
+        let len = buf.len() as u32;
+        let ptr = buf.as_mut_ptr();
+        core::mem::forget(buf);
+        ((ptr as u64) << 32) | (len as u64)
+    }
+
     #[export_name = "decode"]
-    pub extern "C" fn decode(ptr: *const u8, len: u32) {
-        handlers::decode(unsafe { read_bytes(ptr, len) });
+    pub extern "C" fn decode(ptr: *const u8, len: u32) -> u64 {
+        match handlers::decode(unsafe { read_bytes(ptr, len) }) {
+            Ok(s) => write_tagged(true, s.into_bytes()),
+            Err(e) => write_tagged(false, e.into_bytes()),
+        }
     }
 
     #[export_name = "decode_sequence"]
-    pub extern "C" fn decode_sequence(ptr: *const u8, len: u32) {
-        handlers::decode_sequence(unsafe { read_bytes(ptr, len) });
+    pub extern "C" fn decode_sequence(ptr: *const u8, len: u32) -> u64 {
+        match handlers::decode_sequence(unsafe { read_bytes(ptr, len) }) {
+            Ok(s) => write_tagged(true, s.into_bytes()),
+            Err(e) => write_tagged(false, e.into_bytes()),
+        }
     }
 
     #[export_name = "encode"]
-    pub extern "C" fn encode(ptr: *const u8, len: u32) {
-        handlers::encode(unsafe { read_bytes(ptr, len) });
+    pub extern "C" fn encode(ptr: *const u8, len: u32) -> u64 {
+        let json_string = match String::from_utf8(unsafe { read_bytes(ptr, len) }) {
+            Ok(s) => s,
+            Err(e) => return write_tagged(false, e.to_string().into_bytes()),
+        };
+        match handlers::encode(json_string) {
+            Ok(cbor) => write_tagged(true, cbor),
+            Err(e) => write_tagged(false, e.into_bytes()),
+        }
     }
 
     #[export_name = "encode_sequence"]
-    pub extern "C" fn encode_sequence(ptr: *const u8, len: u32) {
-        handlers::encode_sequence(unsafe { read_bytes(ptr, len) });
+    pub extern "C" fn encode_sequence(ptr: *const u8, len: u32) -> u64 {
+        let json_string = match String::from_utf8(unsafe { read_bytes(ptr, len) }) {
+            Ok(s) => s,
+            Err(e) => return write_tagged(false, e.to_string().into_bytes()),
+        };
+        match handlers::encode_sequence(json_string) {
+            Ok(cbor) => write_tagged(true, cbor),
+            Err(e) => write_tagged(false, e.into_bytes()),
+        }
     }
 }
