@@ -7,7 +7,7 @@ called from four different host languages (Rust, JavaScript, Python, Go).
 
 ```
 wit/                      WIT interfaces/worlds shared by guest and host
-<!-- guest/ -->
+guest/
   shared/                 common guest-side utilities (log, timer)
   modules/
     greet/                exports app:greeting/greeting (hello) - an example
