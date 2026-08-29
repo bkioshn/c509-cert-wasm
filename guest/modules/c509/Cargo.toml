@@ -16,5 +16,5 @@ wasip1 = []
 [dependencies]
 shared = { path = "../../shared" }
 wit-bindgen = { version = "0.57", optional = true }
-c509-cert = { path = "../../../../c509-cert"}
+c509-cert = { git = "https://github.com/bkioshn/c509-cert" }
 serde_json = "1"

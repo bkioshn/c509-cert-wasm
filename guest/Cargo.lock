@@ -72,6 +72,7 @@ dependencies = [
 [[package]]
 name = "c509-cert"
 version = "0.1.0"
+source = "git+https://github.com/bkioshn/c509-cert#734fefab5f5850c23d9e0e7c602a0fd5277a91e9"
 dependencies = [
  "hex",
  "ipnet",
